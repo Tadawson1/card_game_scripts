@@ -113,14 +113,6 @@ func get_top_two_cards() -> Array:
 	"""Returns the top 2 cards for player choice (convenience function)"""
 	return get_top_cards(2)
 
-
-func peek_top_card():
-	"""Returns the top card without removing it"""
-	if deck_cards.is_empty():
-		return null
-	return deck_cards[0]
-
-
 func get_remaining_count() -> int:
 	"""Returns the number of cards remaining in the deck"""
 	return deck_cards.size()
@@ -144,7 +136,24 @@ func add_card_to_top(card):
 	deck_cards.push_front(card)  # Add to front (top) of deck
 	print("Added " + card.name + " to top of deck")
 
-
+func add_card_to_bottom(card):
+	"""Adds a card to the second position from the top (below the top card)"""
+	if card == null:
+		print("WARNING: Attempted to add null card to deck bottom")
+		return
+	
+	if deck_cards.is_empty():
+		# If deck is empty, just add to top
+		deck_cards.push_front(card)
+		print("Added " + card.name + " to empty deck")
+	elif deck_cards.size() == 1:
+		# If only one card, add as second card
+		deck_cards.append(card)
+		print("Added " + card.name + " as second card in deck")
+	else:
+		# Insert at position 1 (second from top)
+		deck_cards.insert(1, card)
+		print("Added " + card.name + " to second position in deck")
 
 func add_cards_to_bottom(cards: Array) -> int:
 	"""Adds cards to the bottom of the deck, returns count added"""
@@ -158,6 +167,20 @@ func add_cards_to_bottom(cards: Array) -> int:
 		print("Added " + str(added) + " cards to bottom of deck")
 	
 	return added
+
+func add_card_to_position(card, position: int):
+	"""Adds a card at a specific position in the deck (0 = top)"""
+	if card == null:
+		print("WARNING: Attempted to add null card to deck")
+		return
+	
+	if position < 0:
+		position = 0
+	if position > deck_cards.size():
+		position = deck_cards.size()
+	
+	deck_cards.insert(position, card)
+	print("Added " + card.name + " to position " + str(position) + " of deck")
 
 
 func force_shuffle():
