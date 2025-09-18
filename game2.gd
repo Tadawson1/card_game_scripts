@@ -85,7 +85,7 @@ func show_card_movement(drawn_card_name: String, forced_card_name: String):
 	# Create a temporary label for the drawn card
 	var drawn_label = Label.new()
 	drawn_label.text = drawn_card_name + "\n→ TO HAND"
-	drawn_label.position = Vector2(400, 300)
+	drawn_label.position = Vector2(300, 300)
 	drawn_label.add_theme_font_size_override("font_size", 24)
 	drawn_label.add_theme_color_override("font_color", Color.GREEN)
 	add_child(drawn_label)
@@ -93,7 +93,7 @@ func show_card_movement(drawn_card_name: String, forced_card_name: String):
 	# Create a temporary label for the forced card
 	var forced_label = Label.new()
 	forced_label.text = forced_card_name + "\n→ FORCED PLAY"
-	forced_label.position = Vector2(400, 400)
+	forced_label.position = Vector2(600, 300)
 	forced_label.add_theme_font_size_override("font_size", 24)
 	forced_label.add_theme_color_override("font_color", Color.RED)
 	add_child(forced_label)
