@@ -9,7 +9,8 @@ enum GamePhase {
 	DRAW, 
 	FORCED_PLAY, 
 	HAND_PLAY, 
-	EFFECT_RESOLUTION, 
+	EFFECT_RESOLUTION,
+	RETURN_CARD, 
 	CLEANUP 
 }
 
@@ -99,24 +100,27 @@ func start_new_game():
 	
 
 func player_chose_top_card():
-	"""Handles when player chooses to draw the top card"""
-	if current_phase != GamePhase.DRAW:
-		print("ERROR: Not in draw phase!")
-		return
-	
-	print("GameManager: Player chose TOP CARD")
-	_process_card_choice(true)  # true = top card
+	"""Handles when player chooses to draw/return the top card"""
+	if current_phase == GamePhase.DRAW:
+		print("GameManager: Player chose TOP CARD (draw)")
+		_process_card_choice(true)  # true = top card
+	elif current_phase == GamePhase.RETURN_CARD:
+		print("GameManager: Player returns card to TOP")
+		_process_return_card(true)  # true = return to top
+	else:
+		print("ERROR: Invalid phase for this action!")
 
 
 func player_chose_bottom_card():
-	"""Handles when player chooses to draw the bottom card"""
-	if current_phase != GamePhase.DRAW:
-		print("ERROR: Not in draw phase!")
-		return
-	
-	print("GameManager: Player chose BOTTOM CARD")
-	_process_card_choice(false)  # false = bottom card
-
+	"""Handles when player chooses to draw/return the bottom card"""
+	if current_phase == GamePhase.DRAW:
+		print("GameManager: Player chose BOTTOM CARD (draw)")
+		_process_card_choice(false)  # false = bottom card
+	elif current_phase == GamePhase.RETURN_CARD:
+		print("GameManager: Player returns card as SECOND")
+		_process_return_card(false)  # false = return as second
+	else:
+		print("ERROR: Invalid phase for this action!")
 
 func play_hand_card(card_index: int):
 	"""Plays a card from the player's hand"""
@@ -163,7 +167,46 @@ func process_hand_card_effects_on_self():
 	"""Processes the played hand card's effects targeting the current player"""
 	print("=== PROCESSING HAND CARD EFFECTS ON SELF ===")
 	_process_active_card_effects(current_player)
-	_cleanup_turn()
+
+	# NEW: Move to RETURN_CARD phase instead of cleanup
+	current_phase = GamePhase.RETURN_CARD
+	_print_game_state()
+	
+	# Check if player has cards to return
+	if hand.get_hand_size_for_player(current_player) > 0:
+		print("Player must now return a card to the deck")
+		if current_player == 0:  # Human player
+			# Update button text for return phase
+			if game2_node and game2_node.has_method("update_card_choice_buttons_for_return"):
+				game2_node.update_card_choice_buttons_for_return()
+		else:  # AI player
+			_ai_return_card()
+	else:
+		print("No cards in hand to return, skipping return phase")
+		_cleanup_turn()	
+	
+
+func process_hand_card_effects_on_opponent():
+	"""Processes the played hand card's effects targeting the opponent"""
+	print("=== PROCESSING HAND CARD EFFECTS ON OPPONENT ===")
+	var opponent_player = (current_player + 1) % 2
+	_process_active_card_effects(opponent_player)
+	# NEW: Move to RETURN_CARD phase instead of cleanup
+	current_phase = GamePhase.RETURN_CARD
+	_print_game_state()
+	
+	# Check if player has cards to return
+	if hand.get_hand_size_for_player(current_player) > 0:
+		print("Player must now return a card to the deck")
+		if current_player == 0:  # Human player
+			# Update button text for return phase
+			if game2_node and game2_node.has_method("update_card_choice_buttons_for_return"):
+				game2_node.update_card_choice_buttons_for_return()
+		else:  # AI player
+			_ai_return_card()
+	else:
+		print("No cards in hand to return, skipping return phase")
+		_cleanup_turn()
 
 func _check_game_end() -> bool:
 	"""Checks if the game should end"""
@@ -174,14 +217,6 @@ func _check_game_end() -> bool:
 	# Add other end conditions here (deck empty, special win conditions, etc.)
 	
 	return false
-
-func process_hand_card_effects_on_opponent():
-	"""Processes the played hand card's effects targeting the opponent"""
-	print("=== PROCESSING HAND CARD EFFECTS ON OPPONENT ===")
-	var opponent_player = (current_player + 1) % 2
-	_process_active_card_effects(opponent_player)
-	_cleanup_turn()
-
 
 # ============================================
 #            PRIVATE FUNCTIONS
@@ -256,10 +291,6 @@ func _process_card_choice(chose_top: bool):
 	current_phase = GamePhase.FORCED_PLAY
 	_print_game_state()
 	_advance_to_hand_play()
-	
-
-	
-
 
 func _process_forced_card(card):
 	"""Processes the forced card's effects and discards it"""
@@ -285,6 +316,60 @@ func _process_forced_card(card):
 		discard.add_card(discard_card)
 	
 	print("=== FORCED CARD EFFECTS COMPLETE ===")
+
+func _process_return_card(return_to_top: bool):
+	"""Handles returning a card from hand to deck"""
+	if current_phase != GamePhase.RETURN_CARD:
+		print("ERROR: Not in return card phase!")
+		return
+	
+	# For now, return a random card (later we can add UI for selection)
+	var hand_size = hand.get_hand_size_for_player(current_player)
+	if hand_size == 0:
+		print("No cards to return!")
+		_cleanup_turn()
+		return
+	
+	# Remove a random card from hand (later: let player choose)
+	var random_index = randi() % hand_size
+	var returned_card = hand.remove_card_for_player(random_index, current_player)
+	
+	if returned_card == null:
+		print("ERROR: Failed to remove card for return!")
+		_cleanup_turn()
+		return
+	
+	# Add card back to deck
+	if return_to_top:
+		print("Returning " + returned_card.name + " to TOP of deck")
+		deck.add_card_to_top(returned_card)
+	else:
+		print("Returning " + returned_card.name + " as SECOND card in deck")
+		# We need a new deck function for this
+		deck.add_card_to_position(returned_card, 1)
+	
+	# Update hand size display
+	scoreboard_manager.update_player_hand_size(current_player, hand.get_hand_size_for_player(current_player))
+	
+	# Reset button text for next player
+	if game2_node and game2_node.has_method("update_card_choice_buttons_for_draw"):
+		game2_node.update_card_choice_buttons_for_draw()
+	
+	# Now proceed to cleanup
+	_cleanup_turn()
+
+func _ai_return_card():
+	"""AI logic for returning a card to deck"""
+	print("AI is deciding where to return a card...")
+	await get_tree().create_timer(AI_DELAY).timeout
+	
+	# Simple AI: randomly choose top or second position
+	if randf() > 0.5:
+		print("AI returns card to TOP")
+		_process_return_card(true)
+	else:
+		print("AI returns card as SECOND")
+		_process_return_card(false)
 
 
 func _advance_to_hand_play():
