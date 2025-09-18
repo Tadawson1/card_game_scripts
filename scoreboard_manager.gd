@@ -124,14 +124,14 @@ func update_player_hand_size(player_id: int, hand_size: int):
 func update_player1_score(new_score: int):
 	"""Updates Player 1's score and display"""
 	player1_score = new_score
-	player1_label.text = "Player 1: " + str(player1_score)
+	player1_label.text = "Player 1 Points: " + str(player1_score)
 	print("Updated Player 1 score to: ", player1_score)
 
 
 func update_player2_score(new_score: int):
 	"""Updates Player 2's score and display"""
 	player2_score = new_score
-	player2_label.text = "Player 2: " + str(player2_score)
+	player2_label.text = "Player 2 Points: " + str(player2_score)
 	print("Updated Player 2 score to: ", player2_score)
 
 
