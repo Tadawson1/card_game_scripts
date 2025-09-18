@@ -73,13 +73,13 @@ func start_new_game():
 		if not deck.is_empty():
 			var card1 = deck.draw_top_card()
 			if card1:
-				hand.add_card_for_player(card1, 0)
+				hand.add_card_for_player(card1, 0, false) #suppress refresh
 		
 		# Player 2's starting hand
 		if not deck.is_empty():
 			var card2 = deck.draw_top_card()
 			if card2:
-				hand.add_card_for_player(card2, 1)
+				hand.add_card_for_player(card2, 1)  #ai has no display
 				
 	hand._refresh_hand_display()			
 	
@@ -134,7 +134,11 @@ func play_hand_card(card_index: int):
 		return
 		
 		#update hand size scoreboard after card is played
-	scoreboard_manager.update_player_hand_size(current_player, hand.get_hand_size_for_player(current_player))		
+	scoreboard_manager.update_player_hand_size(current_player, hand.get_hand_size_for_player(current_player))	
+	
+	# Re-layout after removal using intended size
+	if card_display:
+		card_display.refresh_hand_layout_with_count(hand.get_hand_size_for_player(current_player))	
 	
 	# Add hand card to active area
 	active_card_area.add_card(hand_card)
@@ -234,6 +238,10 @@ func _process_card_choice(chose_top: bool):
 	# Update hand size for the current player
 	scoreboard_manager.update_player_hand_size(current_player, hand.get_hand_size_for_player(current_player))
 	
+	# Re-layout based on intended size (not what’s rendered yet)
+	if card_display:
+		card_display.refresh_hand_layout_with_count(hand.get_hand_size_for_player(current_player))
+	
 	# Process forced card
 	_process_forced_card(forced_card)
 	
@@ -241,6 +249,9 @@ func _process_card_choice(chose_top: bool):
 	current_phase = GamePhase.FORCED_PLAY
 	_print_game_state()
 	_advance_to_hand_play()
+	
+
+	
 
 
 func _process_forced_card(card):
