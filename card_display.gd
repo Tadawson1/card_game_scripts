@@ -171,6 +171,32 @@ func refresh_hand_layout():
 			
 			# Store the new default scale for hover effects
 			card.set_meta("default_scale", new_scale)
+			
+			
+func refresh_hand_layout_with_count(hand_count: int):
+	"""Lay out using the intended hand size (ignores how many are rendered)."""
+	if hand_count <= 0:
+		return
+
+	var new_scale = CARD_SCALE
+	var new_spacing = CARD_SPACING
+
+	if hand_count > MAX_CARDS_NORMAL_SIZE:
+		var total_width_needed = hand_count * CARD_SPACING
+		if total_width_needed > MAX_HAND_WIDTH:
+			var scale_factor = float(MAX_HAND_WIDTH) / float(total_width_needed)
+			scale_factor = max(scale_factor, MIN_CARD_SCALE / CARD_SCALE.x)
+			new_scale = CARD_SCALE * scale_factor
+			new_spacing = CARD_SPACING * scale_factor
+
+	# Apply to whatever is currently displayed; late images will match on creation
+	for i in range(displayed_cards.size()):
+		var card = displayed_cards[i]
+		if card and is_instance_valid(card):
+			var new_x = CARD_X_START + (i * new_spacing)
+			card.position = Vector2(new_x, CARD_Y_POSITION)
+			card.scale = new_scale
+			card.set_meta("default_scale", new_scale)  # for hover reset	
 
 func convert_name_to_filename(card_name: String) -> String:
 	"""Converts a card name to its corresponding image filename"""
@@ -304,8 +330,7 @@ func _create_forced_card_display(texture: ImageTexture, card_name: String):
 	# Add to scene
 	var main_scene = get_tree().root.get_child(0)
 	main_scene.add_child(card_button)
-	
-	forced_card_display = card_button
+
 	
 	print("Created forced card display for " + card_name + " at 80% scale")
 
