@@ -79,6 +79,22 @@ func show_card_choice_buttons():
 	if bottom_card_button:
 		bottom_card_button.visible = true
 		
+func update_card_choice_buttons_for_return():
+	"""Updates the card choice buttons for the return phase"""
+	if top_card_button:
+		top_card_button.text = "Return to Top"
+		top_card_button.visible = true
+	if bottom_card_button:
+		bottom_card_button.text = "Return as 2nd"
+		bottom_card_button.visible = true
+
+func update_card_choice_buttons_for_draw():
+	"""Resets the card choice buttons back to draw mode"""
+	if top_card_button:
+		top_card_button.text = "Draw Top"
+	if bottom_card_button:
+		bottom_card_button.text = "Draw Bottom"		
+		
 func show_card_movement(drawn_card_name: String, forced_card_name: String):
 	"""Shows visual feedback of cards moving to hand and active area"""
 	
