@@ -211,6 +211,13 @@ func _create_target_buttons():
 
 func _process_card_choice(chose_top: bool):
 	"""Handles the card draw choice and forced play"""
+	
+	#checks if deck out or not
+	if deck.get_remaining_count() < 2:
+		print("Deck doesn't have enough cards to continue - ending game!")
+		_end_game()
+		return
+			
 	# Draw both cards
 	var top_card = deck.draw_top_card()
 	var bottom_card = deck.draw_top_card()  # Second card drawn is "bottom"
