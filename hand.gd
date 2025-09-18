@@ -8,8 +8,6 @@ extends Node
 # Cards currently in hand
 var hand_cards = []
 var player2_hand_cards = []
-var refresh_timer_active: bool = false
-
 
 
 # Node references
@@ -29,17 +27,16 @@ func _ready():
 #        (Called by other scripts)
 # ============================================
 
-func add_card_for_player(card, player_id: int, skip_refresh: bool = false):
-	"""Adds a card to the specified player's hand"""
+func add_card_for_player(card, player_id: int, do_refresh: bool = true):
 	if player_id == 0:
 		hand_cards.append(card)
 		print("Added to Player 1's hand: " + card.name + " (" + str(card.points) + " points)")
-		if not skip_refresh:  # ADD THIS CHECK
-			_refresh_hand_display()  # Only refresh display if not skipped
+		if do_refresh:
+			_refresh_hand_display()  # Only refresh for Player 1
 	elif player_id == 1:
 		player2_hand_cards.append(card)
 		print("Added to Player 2's hand: " + card.name + " (" + str(card.points) + " points)")
-		# No display refresh for AI player
+		# AI doesn't trigger display refresh
 	else:
 		print("ERROR: Invalid player_id: " + str(player_id))
 
@@ -123,6 +120,7 @@ func get_card_at(index: int):
 func clear_hand():
 	"""Removes all cards from the hand"""
 	hand_cards.clear()
+	_refresh_hand_display()
 	print("Hand cleared")
 
 
@@ -148,16 +146,3 @@ func _refresh_hand_display():
 		var card = hand_cards[i]
 		print("Showing hand card " + str(i) + ": ", card.name)
 		card_display.load_card_image(card.name, i)
-		
-	if hand_cards.size() > 0 and not refresh_timer_active:
-		refresh_timer_active = true
-		print("DEBUG: Setting timer for layout refresh (hand size: " + str(hand_cards.size()) + ")")
-		
-		await get_tree().create_timer(0.5).timeout
-		
-		print("DEBUG: Timer expired, calling refresh_hand_layout")
-		
-		if card_display and card_display.has_method("refresh_hand_layout"):
-			card_display.refresh_hand_layout()
-		
-		refresh_timer_active = false		
