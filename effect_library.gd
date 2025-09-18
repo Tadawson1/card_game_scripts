@@ -109,6 +109,13 @@ func apply_effect(effect_name: String, target_player: int, source_player: int, p
 		
 		"points_if_least_landmarks":
 			success = _effect_points_if_least_landmarks(target_player)
+			
+		"draw_if_opponent_most_landmarks":
+			success = _effect_conditional_draw_opponent_landmarks(target_player, true)
+		
+		"draw_if_most_landmarks_2":
+			success = _effect_conditional_draw_landmarks_multiple(target_player, true, 2)			
+			
 		
 		# ===== WIN CONDITION EFFECTS =====
 		"win_condition_most_landmarks_2_stars":
@@ -164,6 +171,11 @@ func get_effect_description(effect_name: String) -> String:
 		"add_landmark_2": return "Gain 2 landmarks"
 		"add_points": return "Gain points"
 		"remove_points": return "Lose points"
+		"draw_if_most_landmarks": return "Draw 1 card if you have most landmarks"
+		"draw_if_fewest_landmarks": return "Draw 1 card if you have fewest landmarks" 
+		"draw_per_landmark": return "Draw 1 card per landmark you have"
+		"draw_if_most_landmarks_2": return "Draw 2 cards if you have most landmarks"
+		"draw_if_opponent_most_landmarks": return "Draw 1 card if opponent has most landmarks"
 		#win-con effects
 		"win_condition_most_landmarks_2_stars": return "Win Condition: Most Landmarks (2★)"
 		"win_condition_minus_4_points_3_stars": return "Win Condition: Negative Points (3★)"
@@ -429,6 +441,53 @@ func _effect_points_if_least_landmarks(player_id: int) -> bool:
 	else:
 		print("  -> Player " + str(player_id + 1) + " does not have least landmarks, no points")
 		return true  # Still succeeds, just doesn't give points
+		
+func _effect_conditional_draw_opponent_landmarks(player_id: int, need_most: bool) -> bool:
+	"""Draw cards based on whether OPPONENT has most landmarks"""
+	
+	var p1_landmarks = scoreboard.player1_landmarks
+	var p2_landmarks = scoreboard.player2_landmarks
+	var opponent_id = (player_id + 1) % 2
+	
+	var should_draw = false
+	if need_most:  # Player draws if OPPONENT has MOST landmarks
+		if opponent_id == 0:
+			should_draw = p1_landmarks > p2_landmarks
+		else:
+			should_draw = p2_landmarks > p1_landmarks
+		print("  -> Checking if opponent has most landmarks: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
+	
+	if should_draw:
+		return _effect_draw_cards(player_id, 1)
+	else:
+		print("  -> Opponent doesn't have most landmarks, no cards drawn")
+		return true  # Still succeeds, just doesn't drawdraw
+		
+func _effect_conditional_draw_landmarks_multiple(player_id: int, need_most: bool, card_count: int) -> bool:
+	"""Draw multiple cards based on landmark count"""
+	
+	var p1_landmarks = scoreboard.player1_landmarks
+	var p2_landmarks = scoreboard.player2_landmarks
+	
+	var should_draw = false
+	if need_most:  # Player needs MOST landmarks to draw
+		if player_id == 0:
+			should_draw = p1_landmarks > p2_landmarks
+		else:
+			should_draw = p2_landmarks > p1_landmarks
+		print("  -> Checking most landmarks for " + str(card_count) + " cards: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
+	else:  # Player needs FEWEST landmarks to draw
+		if player_id == 0:
+			should_draw = p1_landmarks < p2_landmarks
+		else:
+			should_draw = p2_landmarks < p1_landmarks
+		print("  -> Checking fewest landmarks for " + str(card_count) + " cards: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
+	
+	if should_draw:
+		return _effect_draw_cards(player_id, card_count)
+	else:
+		print("  -> Condition not met, no cards drawn")
+		return true  # Still succeeds, just doesn't draw		
 
 
 # ===== WIN CONDITION EFFECTS =====
