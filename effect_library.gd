@@ -58,50 +58,88 @@ func apply_effect(effect_name: String, target_player: int, activating_player: in
 	# Validate inputs
 	if not _validate_effect_inputs(effect_name, target_player, activating_player):
 		return {"success": false, "requested": 0, "actual": 0, "effect": effect_name}
+		
+	var actual_target = target_player  # Default to target_player
+	var who_value = params.get("who", "target")  # Default to "target" if not specified
+	
+	if who_value == "other":
+		# Switch to the other player
+		actual_target = (target_player + 1) % 2
+		print("Effect targets 'other' - switching from Player " + str(target_player + 1) + " to Player " + str(actual_target + 1))
+	elif who_value == "all":
+		# Special case - will be handled per effect
+		print("Effect targets 'all' players")
+	else:  # "target" or unspecified
+		actual_target = target_player
+	
 	
 	print("Player " + str(activating_player + 1) + " uses " + effect_name + " on Player " + str(target_player + 1))
 	
-	var initial_state = _capture_initial_state(target_player)	
+	var initial_state = {}
+	var initial_state_p1 = {}
+	var initial_state_p2 = {}
+	
+	if who_value == "all":
+		initial_state_p1 = _capture_initial_state(0)
+		initial_state_p2 = _capture_initial_state(1)
+	else:
+		initial_state = _capture_initial_state(actual_target)	
 	
 	# Apply the effect based on its name
 	var result: Dictionary = {"success": false, "requested": 0, "actual": 0, "effect": effect_name}
 	
-	
+
 	match effect_name:
 		# ===== CARD MANIPULATION EFFECTS =====
 		"draw":
 			var amount = params.get("amount", 1)
-			result = _effect_draw_cards(target_player, amount)
+			# Handle "all" special case
+			if who_value == "all":
+				var result_p1 = _effect_draw_cards(0, amount)
+				var result_p2 = _effect_draw_cards(1, amount)
+				result = {"success": result_p1.success and result_p2.success, 
+						 "requested": amount * 2, 
+						 "actual": result_p1.actual + result_p2.actual, 
+						 "effect": effect_name}
+			else:
+				result = _effect_draw_cards(actual_target, amount)
 
 		"discard":
 			var amount = params.get("amount", 1)
-			result = _effect_discard_cards(target_player, amount)
-
+			# "all" case for discard (if needed in future)
+			if who_value == "all":
+				var result_p1 = _effect_discard_cards(0, amount)
+				var result_p2 = _effect_discard_cards(1, amount)
+				result = {"success": result_p1.success and result_p2.success,
+						 "requested": amount * 2,
+						 "actual": result_p1.actual + result_p2.actual,
+						 "effect": effect_name}
+			else:
+				result = _effect_discard_cards(actual_target, amount)
 		
 		# ===== LANDMARK EFFECTS =====
 		"add_landmark":
-			result = _effect_add_landmarks(target_player, params.get("amount", 1))
+			result = _effect_add_landmarks(actual_target, params.get("amount", 1))
 		
 		"remove_landmark":
-			result = _effect_remove_landmarks(target_player, params.get("amount", 1))
+			result = _effect_remove_landmarks(actual_target, params.get("amount", 1))
 		
 		# ===== POINT EFFECTS =====
 		"add_points":
-			result = _effect_add_points(target_player, params.get("amount", 1))
+			result = _effect_add_points(actual_target, params.get("amount", 1))
 		
 		"remove_points":
-			result = _effect_remove_points(target_player, params.get("amount", 1))
+			result = _effect_remove_points(actual_target, params.get("amount", 1))
 		
-
 		"points_conditional":
 			var amount = params.get("amount", 1)
 			var condition = params.get("condition", "most_landmarks")
-			result = _effect_conditional_points_landmarks(target_player, condition, amount)
+			result = _effect_conditional_points_landmarks(actual_target, condition, amount)
 
 		"draw_conditional":
 			var amount = params.get("amount", 1)
 			var condition = params.get("condition", "most_landmarks")
-			result = _effect_conditional_draw_landmarks(target_player, condition, amount)
+			result = _effect_conditional_draw_landmarks(actual_target, condition, amount)
 		
 		
 		
@@ -119,9 +157,14 @@ func apply_effect(effect_name: String, target_player: int, activating_player: in
 		_:
 			print("  -> Effect not implemented yet: " + effect_name)
 			result = {"success": false, "requested": 0, "actual": 0, "effect": effect_name}
-			
 	
-	_track_and_show_changes(target_player, effect_name, result["success"], initial_state)
+	if who_value == "all":
+		# Track changes for both players
+		_track_and_show_changes(0, effect_name, result["success"], initial_state_p1)
+		_track_and_show_changes(1, effect_name, result["success"], initial_state_p2)
+	else:
+		# Track changes for the actual target
+		_track_and_show_changes(actual_target, effect_name, result["success"], initial_state)
 	
 	# Track statistics
 	if result["success"]:
