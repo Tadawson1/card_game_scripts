@@ -22,6 +22,9 @@ const MAX_HAND_WIDTH: int = 1800  # Maximum width for all cards
 const MIN_CARD_SCALE: float = 0.3  # Minimum scale (30% of original)
 const MAX_CARDS_NORMAL_SIZE: int = 4  # Cards stay normal size up to this count
 
+var selected_hand_index: int = -1
+
+
 # Debug settings
 const DEBUG_MODE: bool = false
 
@@ -218,6 +221,33 @@ func refresh_display():
 	# Could be implemented if needed for responsive design
 	pass
 
+func highlight_hand_selection(index: int):
+	# Clear any previous highlight first
+	clear_hand_selection()
+
+	# Find the button whose meta("hand_position") matches the hand index
+	for btn in displayed_cards:
+		if btn and is_instance_valid(btn) and btn.get_meta("hand_position", -999) == index:
+			var base_scale: Vector2 = btn.get_meta("default_scale", CARD_SCALE)
+			var target_scale := base_scale * 1.1
+			# don't let it exceed 1.0 visually
+			target_scale.x = min(target_scale.x, 1.0)
+			target_scale.y = min(target_scale.y, 1.0)
+			btn.scale = target_scale
+			btn.z_index = 20
+			selected_hand_index = index
+			return
+
+func clear_hand_selection():
+	if selected_hand_index == -1:
+		return
+	for btn in displayed_cards:
+		if btn and is_instance_valid(btn) and btn.get_meta("hand_position", -999) == selected_hand_index:
+			var base_scale: Vector2 = btn.get_meta("default_scale", CARD_SCALE)
+			btn.scale = base_scale
+			btn.z_index = 0
+			break
+	selected_hand_index = -1
 
 
 # ============================================
@@ -373,13 +403,20 @@ func _calculate_card_position(index: int) -> Vector2:
 
 
 func _on_card_clicked(hand_position: int):
-	"""Handles when a card button is clicked"""
 	print("Card clicked at hand position: " + str(hand_position))
-	
-	if gamemgr:
-		gamemgr.play_hand_card(hand_position)
-	else:
+
+	if gamemgr == null:
 		print("ERROR: Game manager not found!")
+		return
+
+	# Route click based on current phase
+	if gamemgr.current_phase == gamemgr.GamePhase.HAND_PLAY:
+		gamemgr.play_hand_card(hand_position)
+	elif gamemgr.current_phase == gamemgr.GamePhase.RETURN_CARD:
+		gamemgr.select_return_card(hand_position)
+	else:
+		print("Click ignored in phase: " + str(gamemgr.GamePhase.keys()[gamemgr.current_phase]))
+
 		
 
 func _on_card_hover_start(card_button: TextureButton):
