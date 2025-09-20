@@ -47,134 +47,102 @@ func _ready():
 #        (Called by gamemgr and cards)
 # ============================================
 
-func apply_effect(effect_name: String, target_player: int, source_player: int, params: Dictionary = {}) -> bool:
+func apply_effect(effect_name: String, target_player: int, activating_player: int, params: Dictionary = {}) -> Dictionary:
 	"""
 	Applies a named effect to a target player
-	Returns true if effect was successfully applied
+	target_player: who receives the effect
+	activating_player: who played the card (for logging)
+	Returns dictionary with success status and details
 	"""
 	
 	# Validate inputs
-	if not _validate_effect_inputs(effect_name, target_player, source_player):
-		return false
+	if not _validate_effect_inputs(effect_name, target_player, activating_player):
+		return {"success": false, "requested": 0, "actual": 0, "effect": effect_name}
 	
-	print("Applying effect: " + effect_name + " to Player " + str(target_player + 1))
+	print("Player " + str(activating_player + 1) + " uses " + effect_name + " on Player " + str(target_player + 1))
 	
 	var initial_state = _capture_initial_state(target_player)	
 	
 	# Apply the effect based on its name
-	var success: bool = false
+	var result: Dictionary = {"success": false, "requested": 0, "actual": 0, "effect": effect_name}
+	
 	
 	match effect_name:
 		# ===== CARD MANIPULATION EFFECTS =====
-		"draw_card":
-			success = _effect_draw_cards(target_player, params.get("amount", 1))
-		
-		"draw_2_cards":
-			success = _effect_draw_cards(target_player, 2)
-		
-		"discard_card":
-			success = _effect_discard_cards(target_player, params.get("amount", 1))
-		
-		"opponent_discards":
-			var opponent = (source_player + 1) % 2
-			success = _effect_discard_cards(opponent, params.get("amount", 1))
-			
-		"opponent_draws":
-			var opponent = (source_player + 1) % 2
-			success = _effect_draw_cards(opponent, params.get("amount", 1))		
-		
-		"all_players_draw":
-			success = _effect_all_players_draw(params.get("amount", 1))
-		
+		"draw":
+			var amount = params.get("amount", 1)
+			result = _effect_draw_cards(target_player, amount)
+
+		"discard":
+			var amount = params.get("amount", 1)
+			result = _effect_discard_cards(target_player, amount)
+
 		
 		# ===== LANDMARK EFFECTS =====
 		"add_landmark":
-			success = _effect_add_landmarks(target_player, params.get("amount", 1))
-		
-		"add_landmark_2":
-			success = _effect_add_landmarks(target_player, 2)
+			result = _effect_add_landmarks(target_player, params.get("amount", 1))
 		
 		"remove_landmark":
-			success = _effect_remove_landmarks(target_player, params.get("amount", 1))
+			result = _effect_remove_landmarks(target_player, params.get("amount", 1))
 		
 		# ===== POINT EFFECTS =====
 		"add_points":
-			success = _effect_add_points(target_player, params.get("amount", 1))
+			result = _effect_add_points(target_player, params.get("amount", 1))
 		
 		"remove_points":
-			success = _effect_remove_points(target_player, params.get("amount", 1))
+			result = _effect_remove_points(target_player, params.get("amount", 1))
 		
-		"points_for_most_landmarks":
-			success = _effect_points_for_most_landmarks(target_player)
+
+		"points_conditional":
+			var amount = params.get("amount", 1)
+			var condition = params.get("condition", "most_landmarks")
+			result = _effect_conditional_points_landmarks(target_player, condition, amount)
+
+		"draw_conditional":
+			var amount = params.get("amount", 1)
+			var condition = params.get("condition", "most_landmarks")
+			result = _effect_conditional_draw_landmarks(target_player, condition, amount)
 		
-		"points_if_least_landmarks":
-			success = _effect_points_if_least_landmarks(target_player)
-			
-		"draw_if_opponent_most_landmarks":
-			success = _effect_conditional_draw_opponent_landmarks(target_player, true)
 		
-		"draw_if_most_landmarks_2":
-			success = _effect_conditional_draw_landmarks_multiple(target_player, true, 2)			
-			
 		
-		# ===== WIN CONDITION EFFECTS =====
-		"win_condition_most_landmarks_2_stars":
-			success = _effect_activate_win_condition(target_player, "most_landmarks", 2)
-		
+		# ======= win conditions======= #
 		"win_condition_minus_4_points_3_stars":
-			success = _effect_activate_win_condition(target_player, "negative_points", 3)
+			result = _effect_activate_win_condition(activating_player, "negative_points", 3)
 		
 		"win_condition_most_cards_2_stars":
-			success = _effect_activate_win_condition(target_player, "most_cards", 2)
+			result = _effect_activate_win_condition(activating_player, "most_cards", 2)
 		
 		"win_condition_deck_runs_out_2_stars":
-			success = _effect_activate_win_condition(target_player, "deck_empty", 2)
-		
-		# ===== SPECIAL EFFECTS =====
-		"look_rearrange_top_3":
-			success = _effect_look_rearrange_top(target_player, 3)
-		
-		"draw_if_most_landmarks":
-			success = _effect_conditional_draw_landmarks(target_player, true)
-		
-		"draw_if_fewest_landmarks":
-			success = _effect_conditional_draw_landmarks(target_player, false)
-		
-		"draw_per_landmark":
-			success = _effect_draw_per_landmark(target_player)
-		
+			result = _effect_activate_win_condition(activating_player, "deck_empty", 2)
 		
 		# ===== DEFAULT =====
 		_:
 			print("  -> Effect not implemented yet: " + effect_name)
-			success = false
+			result = {"success": false, "requested": 0, "actual": 0, "effect": effect_name}
 			
-	_track_and_show_changes(target_player, effect_name, success, initial_state)
+	
+	_track_and_show_changes(target_player, effect_name, result["success"], initial_state)
 	
 	# Track statistics
-	if success:
+	if result["success"]:
 		effects_applied += 1
 	else:
 		effects_failed += 1
 	
-	return success
+	return result
 
 
 func get_effect_description(effect_name: String) -> String:
 	"""Returns a human-readable description of an effect"""
 	match effect_name:
 		"draw_card": return "Draw 1 card"
-		"draw_2_cards": return "Draw 2 cards"
 		"discard_card": return "Discard 1 card"
-		"opponent_discards": return "Opponent discards 1 card"
 		"add_landmark": return "Gain 1 landmark"
-		"add_landmark_2": return "Gain 2 landmarks"
 		"add_points": return "Gain points"
 		"remove_points": return "Lose points"
 		"draw_if_most_landmarks": return "Draw 1 card if you have most landmarks"
 		"draw_if_fewest_landmarks": return "Draw 1 card if you have fewest landmarks" 
 		"draw_per_landmark": return "Draw 1 card per landmark you have"
-		"draw_if_most_landmarks_2": return "Draw 2 cards if you have most landmarks"
 		"draw_if_opponent_most_landmarks": return "Draw 1 card if opponent has most landmarks"
 		#win-con effects
 		"win_condition_most_landmarks_2_stars": return "Win Condition: Most Landmarks (2★)"
@@ -255,19 +223,18 @@ func _track_and_show_changes(target_player: int, effect_name: String, success: b
 
 # ===== CARD MANIPULATION EFFECTS =====
 
-func _effect_draw_cards(player_id: int, amount: int) -> bool:
+func _effect_draw_cards(player_id: int, amount: int) -> Dictionary:
 	"""Makes a player draw cards"""
 	print("  -> Player " + str(player_id + 1) + " draws " + str(amount) + " card(s)")
 	
 	if not deck or not hand:
 		print("  -> ERROR: Deck or hand not found")
-		return false
+		return {"success": false, "requested": amount, "actual": 0, "effect": "draw_cards"}
 	
 	var cards_drawn = 0
 	for i in range(amount):
 		if deck.get_remaining_count() > 0:
 			var drawn_card = deck.draw_top_card()
-			# Use player-specific add
 			hand.add_card_for_player(drawn_card, player_id)
 			print("  -> Drew: " + drawn_card.name)
 			cards_drawn += 1
@@ -283,15 +250,16 @@ func _effect_draw_cards(player_id: int, amount: int) -> bool:
 			print("  -> Deck is empty, cannot draw more cards")
 			break
 	
-	return cards_drawn > 0
+	print("  -> Drew " + str(cards_drawn) + " of " + str(amount) + " requested cards")
+	return {"success": cards_drawn > 0, "requested": amount, "actual": cards_drawn, "effect": "draw_cards"}
 
-func _effect_discard_cards(player_id: int, amount: int) -> bool:
+func _effect_discard_cards(player_id: int, amount: int) -> Dictionary:
 	"""Makes a player discard cards (for now, discards random cards)"""
 	print("  -> Player " + str(player_id + 1) + " discards " + str(amount) + " card(s)")
 	
 	if not hand or not discard:
 		print("  -> ERROR: Hand or discard not found")
-		return false
+		return {"success": false, "requested": amount, "actual": 0, "effect": "discard_cards"}
 	
 	var cards_discarded = 0
 	for i in range(amount):
@@ -316,52 +284,99 @@ func _effect_discard_cards(player_id: int, amount: int) -> bool:
 			print("  -> Player has no cards to discard")
 			break
 	
-	return cards_discarded > 0
+	print("  -> Discarded " + str(cards_discarded) + " of " + str(amount) + " requested cards")
+	return {"success": cards_discarded > 0, "requested": amount, "actual": cards_discarded, "effect": "discard_cards"}
 
 
-func _effect_all_players_draw(amount: int) -> bool:
-	"""All players draw cards"""
-	var success = true
-	for player_id in range(2):
-		if not _effect_draw_cards(player_id, amount):
-			success = false
-	return success
+func _effect_conditional_draw_landmarks(player_id: int, condition: String, amount: int) -> Dictionary:
+	"""Draw cards based on landmark conditions"""
+	if not scoreboard:
+		print("  -> ERROR: Scoreboard not found")
+		return {"success": false, "requested": amount, "actual": 0, "effect": "conditional_draw"}
+	
+	var p1_landmarks = scoreboard.player1_landmarks
+	var p2_landmarks = scoreboard.player2_landmarks
+	var should_draw = false
+	var draw_amount = amount
+	
+	match condition:
+		"most_landmarks":
+			# Check if target player has most landmarks
+			if player_id == 0:
+				should_draw = p1_landmarks > p2_landmarks
+			else:
+				should_draw = p2_landmarks > p1_landmarks
+			print("  -> Target has most landmarks? " + str(should_draw))
+			
+		"fewest_landmarks":
+			# Check if target player has fewest landmarks
+			if player_id == 0:
+				should_draw = p1_landmarks < p2_landmarks
+			else:
+				should_draw = p2_landmarks < p1_landmarks
+			print("  -> Target has fewest landmarks? " + str(should_draw))
+			
+		"opponent_most_landmarks":
+			# Check if target's opponent has most landmarks
+			var opponent_id = (player_id + 1) % 2
+			if opponent_id == 0:
+				should_draw = p1_landmarks > p2_landmarks
+			else:
+				should_draw = p2_landmarks > p1_landmarks
+			print("  -> Target's opponent has most landmarks? " + str(should_draw))
+			
+		"per_landmark":
+			# Draw cards equal to target's landmark count
+			var landmark_count = p1_landmarks if player_id == 0 else p2_landmarks
+			draw_amount = landmark_count
+			should_draw = landmark_count > 0
+			print("  -> Target has " + str(landmark_count) + " landmarks, drawing that many cards")
+			
+		_:
+			print("  -> Unknown condition: " + condition)
+			return {"success": false, "requested": 0, "actual": 0, "effect": "conditional_draw"}
+	
+	if should_draw:
+		return _effect_draw_cards(player_id, draw_amount)
+	else:
+		print("  -> Condition not met, no cards drawn")
+		return {"success": true, "requested": 0, "actual": 0, "effect": "conditional_draw"}
 
 
 # ===== LANDMARK EFFECTS =====
 
-func _effect_add_landmarks(player_id: int, amount: int) -> bool:
+func _effect_add_landmarks(player_id: int, amount: int) -> Dictionary:
 	"""Adds landmarks to a player"""
 	print("  -> Player " + str(player_id + 1) + " gains " + str(amount) + " landmark(s)")
 	
-	# For now, track in scoreboard
 	if scoreboard:
 		for i in range(amount):
 			scoreboard.set_player_stat(player_id, "landmarks", 
 				scoreboard.get_player_stat(player_id, "landmarks") + 1)
-				
-		return true
+		
+		return {"success": true, "requested": amount, "actual": amount, "effect": "add_landmarks"}
 	
-	return false
+	return {"success": false, "requested": amount, "actual": 0, "effect": "add_landmarks"}
 
 
-func _effect_remove_landmarks(player_id: int, amount: int) -> bool:
+func _effect_remove_landmarks(player_id: int, amount: int) -> Dictionary:
 	"""Removes landmarks from a player"""
 	print("  -> Player " + str(player_id + 1) + " loses " + str(amount) + " landmark(s)")
 	
 	if scoreboard:
 		var current = scoreboard.get_player_stat(player_id, "landmarks")
 		var new_value = max(0, current - amount)  # Can't go below 0
+		var actual_removed = current - new_value
 		scoreboard.set_player_stat(player_id, "landmarks", new_value)
 		print("  -> Landmarks: " + str(current) + " -> " + str(new_value))
-		return true
+		return {"success": true, "requested": amount, "actual": actual_removed, "effect": "remove_landmarks"}
 	
-	return false
+	return {"success": false, "requested": amount, "actual": 0, "effect": "remove_landmarks"}
 
 
 # ===== POINT EFFECTS =====
 
-func _effect_add_points(player_id: int, amount: int) -> bool:
+func _effect_add_points(player_id: int, amount: int) -> Dictionary:
 	"""Adds or subtracts points from a player's score"""
 	if amount > 0:
 		print("  -> Player " + str(player_id + 1) + " gains " + str(amount) + " point(s)")
@@ -369,220 +384,90 @@ func _effect_add_points(player_id: int, amount: int) -> bool:
 		print("  -> Player " + str(player_id + 1) + " loses " + str(abs(amount)) + " point(s)")
 	else:
 		print("  -> No point change (amount is 0)")
-		return true
+		return {"success": true, "requested": 0, "actual": 0, "effect": "add_points"}
 	
 	if scoreboard:
 		var current_score = scoreboard.player1_score if player_id == 0 else scoreboard.player2_score
 		var new_score = current_score + amount  # This works for both positive and negative
 		scoreboard.update_player_score(player_id, new_score)
 		
-		return true
+		return {"success": true, "requested": amount, "actual": amount, "effect": "add_points"}
 	
-	return false
+	return {"success": false, "requested": amount, "actual": 0, "effect": "add_points"}
 
 
-func _effect_remove_points(player_id: int, amount: int) -> bool:
+func _effect_remove_points(player_id: int, amount: int) -> Dictionary:
 	"""Removes points from a player's score"""
 	print("  -> Player " + str(player_id + 1) + " loses " + str(amount) + " point(s)")
 	
 	if scoreboard:
 		var current_score = scoreboard.player1_score if player_id == 0 else scoreboard.player2_score
-		scoreboard.update_player_score(player_id, max(0, current_score - amount))
-		return true
+		var new_score = current_score - amount  # Allow going negative
+		scoreboard.update_player_score(player_id, new_score)
+		return {"success": true, "requested": amount, "actual": amount, "effect": "remove_points"}
 	
-	return false
+	return {"success": false, "requested": amount, "actual": 0, "effect": "remove_points"}
 
-
-func _effect_points_for_most_landmarks(player_id: int) -> bool:
-	"""Gives points if player has most landmarks"""
-	if not scoreboard:
-		print("  -> ERROR: Scoreboard not found")
-		return false
-	
-	var p1_landmarks = scoreboard.player1_landmarks
-	var p2_landmarks = scoreboard.player2_landmarks
-	
-	print("  -> Checking landmarks: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks))
-	
-	var has_most = false
-	if player_id == 0:
-		has_most = p1_landmarks > p2_landmarks
-	else:
-		has_most = p2_landmarks > p1_landmarks
-	
-	if has_most:
-		print("  -> Player " + str(player_id + 1) + " has most landmarks! Gaining 3 points")
-		return _effect_add_points(player_id, 3)  # Adjust points as needed
-	else:
-		print("  -> Player " + str(player_id + 1) + " does not have most landmarks, no points")
-		return true  # Still succeeds, just doesn't give points
-
-
-func _effect_points_if_least_landmarks(player_id: int) -> bool:
-	"""Gives points if player has least landmarks"""
-	if not scoreboard:
-		print("  -> ERROR: Scoreboard not found")
-		return false
-	
-	var p1_landmarks = scoreboard.player1_landmarks
-	var p2_landmarks = scoreboard.player2_landmarks
-	
-	print("  -> Checking landmarks: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks))
-	
-	var has_least = false
-	if player_id == 0:
-		has_least = p1_landmarks < p2_landmarks
-	else:
-		has_least = p2_landmarks < p1_landmarks
-	
-	if has_least:
-		print("  -> Player " + str(player_id + 1) + " has least landmarks! Gaining 2 points")
-		return _effect_add_points(player_id, 2)  # Adjust points as needed
-	else:
-		print("  -> Player " + str(player_id + 1) + " does not have least landmarks, no points")
-		return true  # Still succeeds, just doesn't give points
-		
-func _effect_conditional_draw_opponent_landmarks(player_id: int, need_most: bool) -> bool:
-	"""Draw cards based on whether OPPONENT has most landmarks"""
-	
-	var p1_landmarks = scoreboard.player1_landmarks
-	var p2_landmarks = scoreboard.player2_landmarks
-	var opponent_id = (player_id + 1) % 2
-	
-	var should_draw = false
-	if need_most:  # Player draws if OPPONENT has MOST landmarks
-		if opponent_id == 0:
-			should_draw = p1_landmarks > p2_landmarks
-		else:
-			should_draw = p2_landmarks > p1_landmarks
-		print("  -> Checking if opponent has most landmarks: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
-	
-	if should_draw:
-		return _effect_draw_cards(player_id, 1)
-	else:
-		print("  -> Opponent doesn't have most landmarks, no cards drawn")
-		return true  # Still succeeds, just doesn't drawdraw
-		
-func _effect_conditional_draw_landmarks_multiple(player_id: int, need_most: bool, card_count: int) -> bool:
-	"""Draw multiple cards based on landmark count"""
-	
-	var p1_landmarks = scoreboard.player1_landmarks
-	var p2_landmarks = scoreboard.player2_landmarks
-	
-	var should_draw = false
-	if need_most:  # Player needs MOST landmarks to draw
-		if player_id == 0:
-			should_draw = p1_landmarks > p2_landmarks
-		else:
-			should_draw = p2_landmarks > p1_landmarks
-		print("  -> Checking most landmarks for " + str(card_count) + " cards: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
-	else:  # Player needs FEWEST landmarks to draw
-		if player_id == 0:
-			should_draw = p1_landmarks < p2_landmarks
-		else:
-			should_draw = p2_landmarks < p1_landmarks
-		print("  -> Checking fewest landmarks for " + str(card_count) + " cards: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
-	
-	if should_draw:
-		return _effect_draw_cards(player_id, card_count)
-	else:
-		print("  -> Condition not met, no cards drawn")
-		return true  # Still succeeds, just doesn't draw		
 
 
 # ===== WIN CONDITION EFFECTS =====
 
-func _effect_activate_win_condition(player_id: int, condition: String, stars: int) -> bool:
+func _effect_activate_win_condition(player_id: int, condition: String, stars: int) -> Dictionary:
 	"""Activates a win condition for a player"""
-	print("  -> Player " + str(player_id + 1) + " activates win condition: " + condition + " (" + str(stars) + " stars)")
+	var gamemgr = get_node("../gamemgr")
+	var actual_player = gamemgr.current_player if gamemgr else player_id
+	print("  -> Player " + str(actual_player + 1) + " activates win condition: " + condition + " (" + str(stars) + " stars)")
 	
 	if scoreboard:
-		if player_id == 0:
+		if actual_player == 0:
 			scoreboard.update_player1_win_condition(condition, stars)
-			return true
-		elif player_id == 1:
+			return {"success": true, "requested": 1, "actual": 1, "effect": "activate_win_condition"}
+		elif actual_player == 1:
 			scoreboard.update_player2_win_condition(condition, stars)
-			return true
+			return {"success": true, "requested": 1, "actual": 1, "effect": "activate_win_condition"}
 	
 	print("  -> ERROR: Scoreboard not found or invalid player_id")
-	return false
+	return {"success": false, "requested": 1, "actual": 0, "effect": "activate_win_condition"}
 
 
-# ===== SPECIAL EFFECTS =====
 
-func _effect_look_rearrange_top(player_id: int, card_count: int) -> bool:
-	"""Look at top cards and rearrange them"""
-	print("  -> Player " + str(player_id + 1) + " looks at top " + str(card_count) + " cards")
-	
-	if not deck:
-		print("  -> ERROR: Deck not found")
-		return false
-	
-	# Get the top cards
-	var top_cards = []
-	for i in range(card_count):
-		if not deck.is_empty():
-			var card = deck.draw_top_card()
-			if card:
-				top_cards.append(card)
-				print("    Card " + str(i + 1) + ": " + card.name)
-	
-	if top_cards.is_empty():
-		print("  -> No cards to rearrange")
-		return false
-	
-	# For now, just randomize their order (later could add UI for player choice)
-	top_cards.shuffle()
-	print("  -> Cards shuffled and returned to deck")
-	
-	# Put them back on top of deck in reverse order (last one goes on top)
-	for i in range(top_cards.size() - 1, -1, -1):
-		# We need to add a function to put cards back on top
-		deck.add_card_to_top(top_cards[i])
-	
-	return true
-
-
-func _effect_conditional_draw_landmarks(player_id: int, need_most: bool) -> bool:
-	"""Draw cards based on landmark count"""
+func _effect_conditional_points_landmarks(player_id: int, condition: String, amount: int) -> Dictionary:
+	"""Give points based on landmark conditions"""
+	if not scoreboard:
+		print("  -> ERROR: Scoreboard not found")
+		return {"success": false, "requested": amount, "actual": 0, "effect": "conditional_points"}
 	
 	var p1_landmarks = scoreboard.player1_landmarks
 	var p2_landmarks = scoreboard.player2_landmarks
+	var should_give_points = false
 	
-	var should_draw = false
-	if need_most:  # Player needs MOST landmarks to draw
-		if player_id == 0:
-			should_draw = p1_landmarks > p2_landmarks
-		else:
-			should_draw = p2_landmarks > p1_landmarks
-		print("  -> Checking most landmarks: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
-	else:  # Player needs FEWEST landmarks to draw
-		if player_id == 0:
-			should_draw = p1_landmarks < p2_landmarks
-		else:
-			should_draw = p2_landmarks < p1_landmarks
-		print("  -> Checking fewest landmarks: P1=" + str(p1_landmarks) + " P2=" + str(p2_landmarks) + " -> Draw: " + str(should_draw))
+	match condition:
+		"most_landmarks":
+			# Check if target player has most landmarks
+			if player_id == 0:
+				should_give_points = p1_landmarks > p2_landmarks
+			else:
+				should_give_points = p2_landmarks > p1_landmarks
+			print("  -> Target has most landmarks? " + str(should_give_points))
+			
+		"least_landmarks":
+			# Check if target player has least landmarks
+			if player_id == 0:
+				should_give_points = p1_landmarks < p2_landmarks
+			else:
+				should_give_points = p2_landmarks < p1_landmarks
+			print("  -> Target has least landmarks? " + str(should_give_points))
+			
+		_:
+			print("  -> Unknown condition: " + condition)
+			return {"success": false, "requested": 0, "actual": 0, "effect": "conditional_points"}
 	
-	if should_draw:
-		return _effect_draw_cards(player_id, 1)
+	if should_give_points:
+		print("  -> Condition met! Target gains " + str(amount) + " points")
+		return _effect_add_points(player_id, amount)
 	else:
-		print("  -> Condition not met, no cards drawn")
-		return true  # Still succeeds, just doesn't draw
-
-
-func _effect_draw_per_landmark(player_id: int) -> bool:
-	"""Draw cards equal to landmark count"""
-	if scoreboard:
-		var landmark_count = scoreboard.get_player_stat(player_id, "landmarks")
-		print("  -> Player " + str(player_id + 1) + " has " + str(landmark_count) + " landmarks")
-		if landmark_count > 0:
-			print("  -> Drawing " + str(landmark_count) + " cards")
-			return _effect_draw_cards(player_id, landmark_count)
-		else:
-			print("  -> No landmarks, no cards drawn")
-			return true  # Still succeeds, just doesn't draw
-	return false
-
+		print("  -> Condition not met, no points awarded")
+		return {"success": true, "requested": 0, "actual": 0, "effect": "conditional_points"}
 
 # ============================================
 #          HELPER FUNCTIONS
@@ -605,15 +490,15 @@ func _validate_nodes() -> bool:
 	return all_valid
 
 
-func _validate_effect_inputs(effect_name: String, target_player: int, source_player: int) -> bool:
+func _validate_effect_inputs(effect_name: String, target_player: int, activating_player: int) -> bool:
 	"""Validates effect parameters"""
 	if target_player < 0 or target_player > 1:
 		print("ERROR: Invalid target player ID: " + str(target_player))
 		effects_failed += 1
 		return false
 	
-	if source_player < 0 or source_player > 1:
-		print("ERROR: Invalid source player ID: " + str(source_player))
+	if activating_player < 0 or activating_player > 1:
+		print("ERROR: Invalid activating player ID: " + str(activating_player))
 		effects_failed += 1
 		return false
 	
