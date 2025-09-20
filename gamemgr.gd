@@ -9,13 +9,15 @@ enum GamePhase {
 	DRAW, 
 	FORCED_PLAY, 
 	HAND_PLAY, 
-	EFFECT_RESOLUTION, 
+	EFFECT_RESOLUTION,
+	RETURN_CARD, 
 	CLEANUP 
 }
 
 const MAX_TURNS: int = 4
 const STARTING_HAND_SIZE: int = 3
-const AI_DELAY: float = 3.0  # Delay for AI decisions (in seconds)
+const AI_THINK_TIME: float = 1.5  # Base thinking time
+const AI_QUICK_DECISION: float = 0.5  # For follow-up decisions
 
 # ============================================
 #                  VARIABLES
@@ -35,12 +37,16 @@ const AI_DELAY: float = 3.0  # Delay for AI decisions (in seconds)
 var current_player: int = 0  # 0 = Player 1, 1 = Player 2 (AI)
 var current_phase: GamePhase = GamePhase.DRAW
 var turn_count: int = 0
+var forced_card = null
+var selected_draw_index: int = -1
+var pending_hand_card = null  # Card selected from hand but not yet played
 
 # UI Elements (created dynamically)
 var target_self_button: Button
 var target_opponent_button: Button
 var game_over_label: Label
 var game_over_panel: Panel
+var selected_return_index: int = -1
 
 
 
@@ -64,6 +70,10 @@ func start_new_game():
 	current_player = 0
 	current_phase = GamePhase.DRAW
 	turn_count = 0
+	
+	if not hand:
+		print("ERROR: Hand node not found!")
+		return	
 	
 	# Setup deck and deal starting hands
 	deck.start_new_game()
@@ -94,28 +104,69 @@ func start_new_game():
 	scoreboard_manager.update_current_player(current_player)
 	scoreboard_manager.update_turn(turn_count + 1)
 	
+		# Show draw buttons for Player 1's first turn
+	if game2_node and game2_node.has_method("update_button_visibility"):
+		game2_node.update_button_visibility(current_phase, current_player)
+	
 	# Start first turn
 	_handle_ai_turn()
 	
 
 func player_chose_top_card():
-	"""Handles when player chooses to draw the top card"""
-	if current_phase != GamePhase.DRAW:
-		print("ERROR: Not in draw phase!")
-		return
-	
-	print("GameManager: Player chose TOP CARD")
-	_process_card_choice(true)  # true = top card
+	"""Handles when player chooses to draw/return the top card"""
+	if current_phase == GamePhase.DRAW:
+		print("GameManager: Player chose to FORCE PLAY TOP CARD")
+		_process_card_choice(true)
+	elif current_phase == GamePhase.RETURN_CARD:
+		if game2_node and game2_node.selected_return_index == -1:
+			print("Select a card to return first.")
+			return
+		print("GameManager: Player returns SELECTED card to TOP")
+		_process_return_card(true)  # uses game2's selected_return_index
+	else:
+		print("ERROR: Invalid phase for this action!")
 
 
 func player_chose_bottom_card():
-	"""Handles when player chooses to draw the bottom card"""
-	if current_phase != GamePhase.DRAW:
-		print("ERROR: Not in draw phase!")
+	"""Handles when player chooses to draw/return the bottom (second) card"""
+	if current_phase == GamePhase.DRAW:
+		print("GameManager: Player chose to FORCE PLAY BOTTOM CARD")
+		_process_card_choice(false)
+	elif current_phase == GamePhase.RETURN_CARD:
+		if game2_node and game2_node.selected_return_index == -1:
+			print("Select a card to return first.")
+			return
+		print("GameManager: Player returns SELECTED card as SECOND")
+		_process_return_card(false)  # uses game2's selected_return_index
+	else:
+		print("ERROR: Invalid phase for this action!")
+
+func select_return_card(index: int):
+	if current_phase != GamePhase.RETURN_CARD:
+		print("Ignoring selection; not in RETURN_CARD phase")
 		return
-	
-	print("GameManager: Player chose BOTTOM CARD")
-	_process_card_choice(false)  # false = bottom card
+
+	# Update game2's selected index
+	if game2_node:
+		# Toggle: tap the same card again to clear selection
+		if game2_node.selected_return_index == index:
+			game2_node.selected_return_index = -1
+			print("Selection cleared.")
+			if card_display and card_display.has_method("clear_hand_selection"):
+				card_display.clear_hand_selection()
+			# Update button visibility (will hide buttons since no selection)
+			game2_node.update_button_visibility(current_phase, current_player)
+			return
+
+		game2_node.selected_return_index = index
+		print("Selected card for return at index: " + str(index))
+		
+		# Visual highlight
+		if card_display and card_display.has_method("highlight_hand_selection"):
+			card_display.highlight_hand_selection(index)
+
+		# Update button visibility (will show return buttons now that card is selected)
+		game2_node.update_button_visibility(current_phase, current_player)
 
 
 func play_hand_card(card_index: int):
@@ -140,48 +191,82 @@ func play_hand_card(card_index: int):
 	if card_display:
 		card_display.refresh_hand_layout_with_count(hand.get_hand_size_for_player(current_player))	
 	
-	# Add hand card to active area
-	active_card_area.add_card(hand_card)
+		# Store the card as pending instead of adding to active area immediately
+	pending_hand_card = hand_card
 	
 	if card_display:
 		card_display.load_forced_card_image(hand_card.name)
+
+	_print_game_state()
 	
-	# Move to effect resolution phase
+	# Check if card requires target selection
+	if hand_card.get("requires_target", true) == false:
+		print("Card auto-targets self (no target selection needed)")
+		_hide_target_buttons()
+		
+		current_phase = GamePhase.EFFECT_RESOLUTION
+		_print_game_state()
+		
+		process_hand_card_effects(current_player)
+	else:
+		print("Waiting for target selection...")
+	# Show target selection buttons for normal cards
+		_show_target_buttons()
+	# Stay in HAND_PLAY phase - will move to EFFECT_RESOLUTION when target is chosen
+
+
+func process_hand_card_effects(target_player: int):
+	"""Processes the played hand card's effects targeting the specified player"""
+	var target_name = "SELF" if target_player == current_player else "OPPONENT"
+	print("=== PROCESSING HAND CARD EFFECTS ON " + target_name + " ===")
+	
+	# Move pending card to active area now that target is chosen
+	if pending_hand_card:
+		active_card_area.add_card(pending_hand_card)
+	else:
+		print("ERROR: No pending card to process!")
+		return
+	
+	# NOW change to effect resolution phase
 	current_phase = GamePhase.EFFECT_RESOLUTION
 	_print_game_state()
 	
-	if _is_win_condition_card(hand_card):
-		print("Win condition card played! Processing immediately...")
-		_process_win_condition_card(hand_card)
+	_process_active_card_effects(target_player)
+	
+	# Clear active area and move cards to discard (like forced cards do)
+	var cards_to_discard = active_card_area.clear_all_cards()
+	for card in cards_to_discard:
+		discard.add_card(card)
+	print("Moved hand card to discard")
+	
+	# Clear the pending card
+	pending_hand_card = null
+
+	# Move to RETURN_CARD phase
+	current_phase = GamePhase.RETURN_CARD
+	_print_game_state()
+	
+		# Update button visibility (won't show return buttons until card selected)
+	if game2_node and game2_node.has_method("update_button_visibility"):
+		game2_node.update_button_visibility(current_phase, current_player)
+
+	# Hide target buttons
+	_hide_target_buttons()
+
+	# Hide Draw Top/Bottom buttons during return selection
+	if game2_node and game2_node.has_method("hide_card_choice_buttons"):
+		game2_node.hide_card_choice_buttons()
+
+	# Check if player has cards to return
+	var hand_size: int = hand.get_hand_size_for_player(current_player)
+	if hand_size > 0:
+		if current_player == 0:
+			print("Player must now SELECT a card to return, then choose Top/Second.")
+		else:
+			_ai_return_card()
 	else:
-		print("Waiting for target selection...")
-		# Show target selection buttons for normal cards
-		_show_target_buttons()	
-
-
-func process_hand_card_effects_on_self():
-	"""Processes the played hand card's effects targeting the current player"""
-	print("=== PROCESSING HAND CARD EFFECTS ON SELF ===")
-	_process_active_card_effects(current_player)
-	_cleanup_turn()
-
-func _check_game_end() -> bool:
-	"""Checks if the game should end"""
-	if turn_count >= (MAX_TURNS * 2):
-		print("Maximum turns reached!")
-		return true
-	
-	# Add other end conditions here (deck empty, special win conditions, etc.)
-	
-	return false
-
-func process_hand_card_effects_on_opponent():
-	"""Processes the played hand card's effects targeting the opponent"""
-	print("=== PROCESSING HAND CARD EFFECTS ON OPPONENT ===")
-	var opponent_player = (current_player + 1) % 2
-	_process_active_card_effects(opponent_player)
-	_cleanup_turn()
-
+		print("No cards in hand to return, skipping return phase")
+		_cleanup_turn()
 
 # ============================================
 #            PRIVATE FUNCTIONS
@@ -226,18 +311,27 @@ func _process_card_choice(chose_top: bool):
 	var forced_card
 	
 	if chose_top:
-		drawn_card = top_card      # Chose top, keep top
-		forced_card = bottom_card   # Force play bottom
+		forced_card = top_card      # Chose top, force play top
+		drawn_card = bottom_card   # Draw bottom to hand
 	else:
-		drawn_card = bottom_card    # Chose bottom, keep bottom  
-		forced_card = top_card      # Force play top
+		forced_card = bottom_card    #Choose bottom, force play bottom 
+		drawn_card = top_card      # Draw top to hand
 	
-	print("Chose to draw: " + drawn_card.name)
-	print("FORCED to play: " + forced_card.name)
+	print("Chose to FORCE PLAY: " + forced_card.name)
+	print("Drawn to hand: " + drawn_card.name)
 	
 	if game2_node and game2_node.has_method("show_card_movement"):
-		game2_node.show_card_movement(drawn_card.name, forced_card.name)		
+		game2_node.show_card_movement(drawn_card.name, forced_card.name)	
+		
+	current_phase = GamePhase.FORCED_PLAY
+	_print_game_state()		
 	
+		# Hide force card buttons immediately after choice
+	if game2_node and game2_node.has_method("update_button_visibility"):
+		game2_node.update_button_visibility(current_phase, current_player)
+	
+	
+	_process_forced_card(forced_card)
 	
 	# Add chosen card to current player's hand
 	hand.add_card_for_player(drawn_card, current_player)
@@ -248,18 +342,8 @@ func _process_card_choice(chose_top: bool):
 	# Re-layout based on intended size (not what’s rendered yet)
 	if card_display:
 		card_display.refresh_hand_layout_with_count(hand.get_hand_size_for_player(current_player))
-	
-	# Process forced card
-	_process_forced_card(forced_card)
-	
-	# Move to hand play phase
-	current_phase = GamePhase.FORCED_PLAY
-	_print_game_state()
+		
 	_advance_to_hand_play()
-	
-
-	
-
 
 func _process_forced_card(card):
 	"""Processes the forced card's effects and discards it"""
@@ -269,22 +353,79 @@ func _process_forced_card(card):
 	if card_display:
 		card_display.load_forced_card_image(card.name)	
 	
-	if _is_win_condition_card(card):
-		print("Forced card is a win condition! Applying to current player...")
-		_process_win_condition_card(card)
-	else:
-		# Process normal effects for forced card
-		print("Processing effects for forced card: " + card.name)
-		# Process on current player by default for forced cards
-		_process_single_card_effects(card, current_player)	
+	print("Processing effects for forced card: " + card.name)
+	# Forced cards always affect current player
+	_process_single_card_effects(card, current_player)	
 	
-
 	# Move forced card to discard
 	var cards_to_discard = active_card_area.clear_all_cards()
 	for discard_card in cards_to_discard:
 		discard.add_card(discard_card)
 	
 	print("=== FORCED CARD EFFECTS COMPLETE ===")
+
+func _process_return_card(return_to_top: bool):
+	"""Handles returning a card from hand to deck"""
+	if current_phase != GamePhase.RETURN_CARD:
+		print("ERROR: Not in return card phase!")
+		return
+	
+	# For now, return a random card (later we can add UI for selection)
+	var hand_size: int = hand.get_hand_size_for_player(current_player)
+	if hand_size == 0:
+		print("No cards to return!")
+		_cleanup_turn()
+		return
+	
+	# Use game2's selected index if available, otherwise random
+	var return_index = -1
+	if current_player == 0 and game2_node and game2_node.selected_return_index >= 0:
+		return_index = game2_node.selected_return_index
+	else:
+		# AI or no selection - use random
+		return_index = randi() % hand_size
+	
+	var returned_card = hand.remove_card_for_player(return_index, current_player)
+	
+	# Clear selection in game2
+	if game2_node:
+		game2_node.selected_return_index = -1
+	
+	# Clear visual selection too
+	if card_display and card_display.has_method("clear_hand_selection"):
+		card_display.clear_hand_selection()
+	
+	if returned_card == null:
+		print("ERROR: Failed to remove card for return!")
+		_cleanup_turn()
+		return
+	
+	# Add card back to deck
+	if return_to_top:
+		print("Returning " + returned_card.name + " to TOP of deck")
+		deck.add_card_to_top(returned_card)
+	else:
+		print("Returning " + returned_card.name + " as SECOND card in deck")
+		deck.add_card_to_position(returned_card, 1)
+	
+	# Update hand size display
+	scoreboard_manager.update_player_hand_size(current_player, hand.get_hand_size_for_player(current_player))
+	
+	# Now proceed to cleanup
+	_cleanup_turn()
+
+func _ai_return_card():
+	"""AI logic for returning a card to deck"""
+	print("AI is deciding where to return a card...")
+	await get_tree().create_timer(AI_QUICK_DECISION).timeout
+	
+	# Simple AI: randomly choose top or second position
+	if randf() > 0.5:
+		print("AI returns card to TOP")
+		_process_return_card(true)
+	else:
+		print("AI returns card as SECOND")
+		_process_return_card(false)
 
 
 func _advance_to_hand_play():
@@ -296,29 +437,7 @@ func _advance_to_hand_play():
 	
 	if current_player == 1:
 		_ai_play_hand_card()	
-	
-func _is_win_condition_card(card) -> bool:
-	"""Checks if a card has win condition effects"""
-	if not card.has("effects"):
-		return false
-	
-	for effect in card.effects:
-		if effect.begins_with("win_condition"):
-			return true
-	
-	return false
-	
-	#process win condition cards
-func _process_win_condition_card(card):
-	"""Processes win condition cards (always applies to the player who played it)"""
-	print("Processing win condition card: " + card.name)
-	
-	# Win conditions always apply to the player who played them
-	_process_single_card_effects(card, current_player)
-	
-	# No need for target selection, go straight to cleanup
-	_cleanup_turn()
-	
+		
 func _process_single_card_effects(card, target_player: int):
 	"""Processes all effects of a single card"""
 	# Process point value if it has one
@@ -328,16 +447,41 @@ func _process_single_card_effects(card, target_player: int):
 	
 	if card.has("effects"):
 		print("Card effects: ", card.effects)
-		for effect in card.effects:
-			effect_library.apply_effect(effect, target_player, current_player)
-	
+		for effect in card.effects:	
+			# Check if card has parameters like how many to draw etc.
+			var params = {}
+			if card.has("effect_params") and card.effect_params.has(effect):
+				params = card.effect_params[effect].duplicate()  # Duplicate to avoid modifying original
+				
+			# Special handling for "all" target
+			if params.get("target", "") == "all":
+				print("  Effect " + effect + " targets all players")
+				params.erase("target")  # Remove target from params since we handle it here
+				# Apply to both players
+				effect_library.apply_effect(effect, 0, current_player, params)
+				effect_library.apply_effect(effect, 1, current_player, params)
+			else:
+				# Normal single-target effect
+				if params.has("target"):
+					params.erase("target")  # Remove old target system from params
+				print("  Effect " + effect + " has params: ", params)
+				effect_library.apply_effect(effect, target_player, current_player, params)
 
 func _process_active_card_effects(target_player: int):
-	"""Processes all active card effects targeting the specified player"""
-	for card in active_card_area.active_cards:
-		print("Processing effects for: " + card.name + " (targeting Player " + str(target_player + 1) + ")")
-		_process_single_card_effects(card,target_player)
-		print("Card effects complete")
+	"""Processes the active card's effects targeting the specified player"""
+	# Get the single card that was just played (should be only one)
+	var active_cards = active_card_area.active_cards
+	if active_cards.is_empty():
+		print("WARNING: No cards in active area to process")
+		return
+	
+	if active_cards.size() > 1:
+		print("WARNING: Multiple cards in active area, processing first one only")
+	
+	var card = active_cards[0]  # Process the first (and should be only) card
+	print("Processing effects for: " + card.name + " (targeting Player " + str(target_player + 1) + ")")
+	_process_single_card_effects(card, target_player)
+	print("Card effects complete")
 
 
 func _cleanup_turn():
@@ -349,10 +493,13 @@ func _cleanup_turn():
 	# Hide target buttons
 	_hide_target_buttons()
 	
-	# Move all active cards to discard
-	var cards_to_discard = active_card_area.clear_all_cards()
-	for card in cards_to_discard:
-		discard.add_card(card)
+	# Active area should already be empty (cleared after processing)
+	# Just verify and warn if not
+	if not active_card_area.is_empty():
+		print("WARNING: Active area not empty during cleanup!")
+		var cards_to_discard = active_card_area.clear_all_cards()
+		for card in cards_to_discard:
+			discard.add_card(card)
 	
 	# Switch to next player and increment turn
 	current_player = (current_player + 1) % 2
@@ -362,9 +509,9 @@ func _cleanup_turn():
 	scoreboard_manager.update_current_player(current_player)
 	scoreboard_manager.update_turn(turn_count + 1)
 	
-		# Check for game end
+	# Check for game end
 	if _check_game_end():
-		_end_game()
+		_end_game()  
 		return
 		
 	# Return to draw phase for next turn
@@ -372,7 +519,21 @@ func _cleanup_turn():
 	_print_game_state()
 	print("=== TURN COMPLETE - Next player's turn ===")
 	
+	if game2_node and game2_node.has_method("update_button_visibility"):
+		game2_node.update_button_visibility(current_phase, current_player)
+	
 	_handle_ai_turn()
+	
+func _check_game_end() -> bool:
+	"""Checks if the game should end"""
+	if turn_count >= (MAX_TURNS * 2):
+		print("Maximum turns reached!")
+		return true
+	
+	# Add other end conditions here (deck empty, special win conditions, etc.)
+	
+	return false
+	
 	
 func _end_game():
 	"""Handles game ending"""
@@ -458,7 +619,7 @@ func _calculate_player_stars(player_id: int) -> int:
 		print("  -> Condition NOT met. Earned 0 stars")
 		return 0
 
-# 🟢 ADD THIS NEW FUNCTION:
+
 func _check_win_condition_met(player_id: int, condition: String) -> bool:
 	"""Checks if a specific win condition was met by a player"""
 	
@@ -515,15 +676,20 @@ func _check_win_condition_met(player_id: int, condition: String) -> bool:
 
 func _handle_ai_turn():
 	"""Handles the AI player's turn"""
+	if current_player != 0:  # AI turn
+		# Hide buttons during AI turn
+		if game2_node and game2_node.has_method("update_button_visibility"):
+			game2_node.update_button_visibility(current_phase, current_player)
+	
 	if current_player != 1:  # Only run for Player 2 (AI)
-
 		return
+	
 	
 	print("=== AI PLAYER 2 TURN ===")
 	
 	if current_phase == GamePhase.DRAW:
 		print("AI is making draw decision...")
-		await get_tree().create_timer(AI_DELAY).timeout
+		await get_tree().create_timer(AI_THINK_TIME).timeout
 		
 		# Random choice: top or bottom card
 		if randf() > 0.5:
@@ -537,7 +703,7 @@ func _handle_ai_turn():
 func _ai_play_hand_card():
 	"""AI logic for playing a card from hand"""
 	print("AI is choosing a card to play...")
-	await get_tree().create_timer(AI_DELAY).timeout
+	await get_tree().create_timer(AI_QUICK_DECISION).timeout
 	
 	# Simple AI: play a random card from hand
 	# Get Player 2's hand size
@@ -546,20 +712,26 @@ func _ai_play_hand_card():
 		var random_index = randi() % hand_size
 		print("AI plays card at index: " + str(random_index))
 		
-		# Get the card from Player 2's hand
+		# Get the card from Player 2's hand to check metadata
 		var card = hand.get_card_at_for_player(random_index, 1)
-		
+
 		play_hand_card(random_index)
-		
-		if not _is_win_condition_card(card):
-			# AI randomly chooses target for normal cards
-			await get_tree().create_timer(AI_DELAY * 0.5).timeout
+
+		# Check if card requires target selection
+		if card.get("requires_target", true) == false:
+			print("AI's card auto-targets self")
+			await get_tree().create_timer(AI_QUICK_DECISION).timeout
+			process_hand_card_effects(current_player)
+		else:
+			# AI randomly chooses target for cards that require it
+			await get_tree().create_timer(AI_QUICK_DECISION).timeout
 			if randf() > 0.5:
 				print("AI targets self")
-				process_hand_card_effects_on_self()
+				process_hand_card_effects(current_player)
 			else:
 				print("AI targets opponent")
-				process_hand_card_effects_on_opponent()	
+				var opponent = (current_player + 1) % 2
+				process_hand_card_effects(opponent)
 				
 func _show_target_buttons():
 	"""Shows the target selection buttons"""
@@ -585,123 +757,12 @@ func _print_game_state():
 func _on_target_self_pressed():
 	"""Called when Target Self button is pressed"""
 	print("Target Self button clicked!")
-	process_hand_card_effects_on_self()
+	process_hand_card_effects(current_player)
 
 
 func _on_target_opponent_pressed():
 	"""Called when Target Opponent button is pressed"""
 	print("Target Opponent button clicked!")
-	process_hand_card_effects_on_opponent()
+	var opponent = (current_player + 1) % 2
+	process_hand_card_effects(opponent)
 	
-	
-	# ============================================
-#                GAME FLOW DIAGRAM
-# ============================================
-#
-# GAME START:
-# └─► start_new_game()
-#     ├─ Reset game state (player=0, phase=DRAW, turn=0)
-#     ├─ deck.start_new_game()
-#     ├─ deck.deal_starting_hand()
-#     └─► _handle_ai_turn() [only if current_player==1]
-#
-# TURN FLOW (repeats until game ends):
-#
-# [PHASE: DRAW]
-# ├─► Human Player (Player 0):
-# │   └─ Waits for button click...
-# │       ├─► player_chose_top_card() ──┐
-# │       └─► player_chose_bottom_card() ┴─► _process_card_choice(bool)
-# │                                           ├─ Draw chosen card to hand
-# │                                           ├─ Get forced card
-# │                                           ├─► _process_forced_card(card)
-# │                                           │   ├─ Add to active area
-# │                                           │   ├─ Check: _is_win_condition_card()?
-# │                                           │   │   ├─ YES ─► _process_win_condition_card()
-# │                                           │   │   │         └─► _process_single_card_effects(card, current_player)
-# │                                           │   │   └─ NO ──► _process_single_card_effects(card, current_player)
-# │                                           │   └─ Clear active area & discard
-# │                                           └─► _advance_to_hand_play()
-# │                                               └─ Set phase = HAND_PLAY
-# │
-# └─► AI Player (Player 1):
-#     └─► _handle_ai_turn()
-#         ├─ Wait AI_DELAY
-#         ├─ Random choice
-#         └─► player_chose_top_card() OR player_chose_bottom_card()
-#             └─ (follows same flow as human above)
-#
-# [PHASE: HAND_PLAY]
-# ├─► Human Player:
-# │   └─ Clicks on card in hand...
-# │       └─► play_hand_card(index)
-# │           ├─ Remove card from hand
-# │           ├─ Add to active area
-# │           ├─ Check: _is_win_condition_card()?
-# │           │   ├─ YES ─► _process_win_condition_card()
-# │           │   │         ├─► _process_single_card_effects(card, current_player)
-# │           │   │         └─► _cleanup_turn() [skips target selection]
-# │           │   └─ NO ──► _show_target_buttons()
-# │           │             └─ Waits for button click...
-# │           │                 ├─► _on_target_self_pressed()
-# │           │                 │   └─► process_hand_card_effects_on_self()
-# │           │                 │       ├─► _process_active_card_effects(current_player)
-# │           │                 │       │   └─► _process_single_card_effects(each card, target)
-# │           │                 │       └─► _cleanup_turn()
-# │           │                 └─► _on_target_opponent_pressed()
-# │           │                     └─► process_hand_card_effects_on_opponent()
-# │           │                         ├─► _process_active_card_effects(opponent)
-# │           │                         │   └─► _process_single_card_effects(each card, target)
-# │           │                         └─► _cleanup_turn()
-# │
-# └─► AI Player:
-#     └─► _ai_play_hand_card()
-#         ├─ Wait AI_DELAY
-#         ├─ Pick random card
-#         ├─► play_hand_card(index)
-#         ├─ Check: _is_win_condition_card()?
-#         │   ├─ YES ─ (auto processes, no target needed)
-#         │   └─ NO ──► Random target choice
-#         │             ├─► process_hand_card_effects_on_self()
-#         │             └─► process_hand_card_effects_on_opponent()
-#         └─ (follows same flow as human)
-#
-# [PHASE: CLEANUP]
-# └─► _cleanup_turn()
-#     ├─ Hide target buttons
-#     ├─ Move active cards → discard
-#     ├─ Switch current_player (0↔1)
-#     ├─ Increment turn_count
-#     ├─ Update scoreboard
-#     ├─► _check_game_end()?
-#     │   ├─ YES ─► _end_game()
-#     │   │         ├─► _calculate_player_stars(0)
-#     │   │         │   └─► _check_win_condition_met()
-#     │   │         ├─► _calculate_player_stars(1)
-#     │   │         │   └─► _check_win_condition_met()
-#     │   │         └─ Declare winner
-#     │   └─ NO ──┐
-#     │           │
-#     ├─ Set phase = DRAW
-#     └─► _handle_ai_turn() [starts next turn]
-#         └─ (loops back to TURN FLOW)
-#
-# ============================================
-#                HELPER FUNCTIONS
-# ============================================
-# These can be called at various points:
-#
-# _is_win_condition_card(card) -> bool
-#   └─ Checks if card has "win_condition" effect
-#
-# _process_single_card_effects(card, target_player)
-#   ├─ Apply point value (if any)
-#   └─ Apply each effect via effect_library
-#
-# _show_target_buttons() / _hide_target_buttons()
-#   └─ UI visibility control
-#
-# _print_game_state()
-#   └─ Debug output
-#
-# ============================================
