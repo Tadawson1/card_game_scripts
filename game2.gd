@@ -25,8 +25,16 @@ const DEBUG_MODE: bool = false  # Set to true to show test buttons
 
 # UI Elements
 var new_game_button: Button
-var top_card_button: Button
-var bottom_card_button: Button
+# Draw phase buttons
+var draw_top_button: Button
+var draw_bottom_button: Button
+
+# Return phase buttons  
+var return_top_button: Button
+var return_bottom_button: Button
+
+#UI State
+var selected_return_index: int = -1
 
 # Visual Elements (for game board)
 var deck_visual: ColorRect
@@ -63,24 +71,50 @@ func show_game_board():
 	new_game_button.hide()
 	_create_game_board()
 
-
-func hide_card_choice_buttons():
-	"""Hides the card choice buttons (called by gamemgr when not needed)"""
-	if top_card_button:
-		top_card_button.visible = false
-	if bottom_card_button:
-		bottom_card_button.visible = false
-
-
-func show_card_choice_buttons():
-	"""Shows the card choice buttons (called by gamemgr during draw phase)"""
-	if top_card_button:
-		top_card_button.visible = true
-	if bottom_card_button:
-		bottom_card_button.visible = true
+func update_button_visibility(phase: int, current_player: int):
+	"""Updates which buttons are visible based on game phase and current player"""
+	# Hide all buttons first
+	if draw_top_button:
+		draw_top_button.visible = false
+	if draw_bottom_button:
+		draw_bottom_button.visible = false
+	if return_top_button:
+		return_top_button.visible = false
+	if return_bottom_button:
+		return_bottom_button.visible = false
+	
+	# Only show buttons for human player (Player 0)
+	if current_player != 0:
+		return
+	
+	# Show appropriate buttons based on phase
+	match phase:
+		gamemgr.GamePhase.DRAW:
+			if draw_top_button and draw_bottom_button:
+				draw_top_button.visible = true
+				draw_bottom_button.visible = true
+		
+		gamemgr.GamePhase.RETURN_CARD:
+			# Only show if a card has been selected
+			if selected_return_index >= 0:
+				if return_top_button and return_bottom_button:
+					return_top_button.visible = true
+					return_bottom_button.visible = true
+		
+		# All other phases: no buttons visible
+		_:
+			pass
 		
 func show_card_movement(drawn_card_name: String, forced_card_name: String):
 	"""Shows visual feedback of cards moving to hand and active area"""
+	
+		# Create a temporary label for the forced card
+	var forced_label = Label.new()
+	forced_label.text = forced_card_name + "\n→ FORCED PLAY"
+	forced_label.position = Vector2(600, 300)
+	forced_label.add_theme_font_size_override("font_size", 24)
+	forced_label.add_theme_color_override("font_color", Color.RED)
+	add_child(forced_label)
 	
 	# Create a temporary label for the drawn card
 	var drawn_label = Label.new()
@@ -90,16 +124,8 @@ func show_card_movement(drawn_card_name: String, forced_card_name: String):
 	drawn_label.add_theme_color_override("font_color", Color.GREEN)
 	add_child(drawn_label)
 	
-	# Create a temporary label for the forced card
-	var forced_label = Label.new()
-	forced_label.text = forced_card_name + "\n→ FORCED PLAY"
-	forced_label.position = Vector2(600, 300)
-	forced_label.add_theme_font_size_override("font_size", 24)
-	forced_label.add_theme_color_override("font_color", Color.RED)
-	add_child(forced_label)
-	
 	# Remove labels after 2 seconds
-	await get_tree().create_timer(5.0).timeout
+	await get_tree().create_timer(4.0).timeout
 	drawn_label.queue_free()
 	forced_label.queue_free()
 	
@@ -176,22 +202,40 @@ func _create_deck_visual():
 
 
 func _create_card_choice_buttons():
-	"""Creates the top and bottom card choice buttons"""
-	# Top card button
-	top_card_button = Button.new()
-	top_card_button.text = "Draw Top"
-	top_card_button.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
-	top_card_button.position = Vector2(1600, 600)
-	top_card_button.pressed.connect(_on_top_card_pressed)
-	add_child(top_card_button)
+	"""Creates the draw and return phase buttons"""
+	# Draw phase buttons
+	draw_top_button = Button.new()
+	draw_top_button.text = "Force Play Top"
+	draw_top_button.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
+	draw_top_button.position = Vector2(1600, 600)
+	draw_top_button.pressed.connect(_on_draw_top_pressed)
+	draw_top_button.visible = false
+	add_child(draw_top_button)
 	
-	# Bottom card button
-	bottom_card_button = Button.new()
-	bottom_card_button.text = "Draw Bottom"
-	bottom_card_button.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
-	bottom_card_button.position = Vector2(1600, 850)
-	bottom_card_button.pressed.connect(_on_bottom_card_pressed)
-	add_child(bottom_card_button)
+	draw_bottom_button = Button.new()
+	draw_bottom_button.text = "Force Play Bottom"
+	draw_bottom_button.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
+	draw_bottom_button.position = Vector2(1600, 850)
+	draw_bottom_button.pressed.connect(_on_draw_bottom_pressed)
+	draw_bottom_button.visible = false
+	add_child(draw_bottom_button)
+	
+	# Return phase buttons
+	return_top_button = Button.new()
+	return_top_button.text = "Return to Top"
+	return_top_button.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
+	return_top_button.position = Vector2(1600, 600)
+	return_top_button.pressed.connect(_on_return_top_pressed)
+	return_top_button.visible = false
+	add_child(return_top_button)
+	
+	return_bottom_button = Button.new()
+	return_bottom_button.text = "Return as 2nd"
+	return_bottom_button.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
+	return_bottom_button.position = Vector2(1600, 850)
+	return_bottom_button.pressed.connect(_on_return_bottom_pressed)
+	return_bottom_button.visible = false
+	add_child(return_bottom_button)
 	
 
 
@@ -242,7 +286,9 @@ func _cleanup_game_board():
 	"""Removes all game board elements (useful for restarting)"""
 	var elements_to_remove = [
 		deck_visual, hand_visual, discard_visual, 
-		active_area_visual, top_card_button, bottom_card_button
+		active_area_visual, 
+		draw_top_button, draw_bottom_button,
+		return_top_button, return_bottom_button
 	]
 	
 	for element in elements_to_remove:
@@ -254,8 +300,11 @@ func _cleanup_game_board():
 	hand_visual = null
 	discard_visual = null
 	active_area_visual = null
-	top_card_button = null
-	bottom_card_button = null
+	draw_top_button = null
+	draw_bottom_button = null
+	return_top_button = null
+	return_bottom_button = null
+	selected_return_index = -1  # Reset selection state
 
 
 # ============================================
@@ -270,25 +319,38 @@ func _on_new_game_pressed():
 		# Clean up any existing game board
 		_cleanup_game_board()
 		
+		# Show the game board
+		show_game_board()
+		
 		# Start new game
 		gamemgr.start_new_game()
 		
-		# Show the game board
-		show_game_board()
 	else:
 		print("ERROR: Game Manager not found!")
 
 
-func _on_top_card_pressed():
-	"""Called when top card button is pressed"""
+func _on_draw_top_pressed():
+	"""Called when Force Play Top button is pressed"""
 	if gamemgr:
 		gamemgr.player_chose_top_card()
 
 
-func _on_bottom_card_pressed():
-	"""Called when bottom card button is pressed"""
+func _on_draw_bottom_pressed():
+	"""Called when Force Play Bottom button is pressed"""
 	if gamemgr:
 		gamemgr.player_chose_bottom_card()
+
+
+func _on_return_top_pressed():
+	"""Called when Return to Top button is pressed"""
+	if gamemgr:
+		gamemgr.player_chose_top_card()  # Same function, different context
+
+
+func _on_return_bottom_pressed():
+	"""Called when Return as 2nd button is pressed"""
+	if gamemgr:
+		gamemgr.player_chose_bottom_card()  # Same function, different context
 
 
 func _on_test_urls_pressed():
